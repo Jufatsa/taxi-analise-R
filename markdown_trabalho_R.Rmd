@@ -1,0 +1,982 @@
+---
+title: "Trabalho Final R - MBA em IA e ML"
+author: "Autores: <br> Ariel Rodrigues Miranda <br> Duan Nunes Alves da Silva <br> Jenifer Caroline Correa da Silva <br> Juliana Fátima dos Santos"
+date: "Agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Iniciando as Libs
+
+```{r iniciando_libs, message=FALSE, warning=FALSE}
+# Alterando Padrao em PTBR
+Sys.setlocale("LC_ALL", "pt_br.utf-8")
+
+# Data Frame com a segmentacao da analise
+segmentacao = data.frame(matrix(ncol = 2, nrow = 0))
+segcol = c("tipo", "valor")
+colnames(segmentacao) = segcol
+
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+
+# Pacotes utilizados para o trabalho
+pacotes = c('sqldf', 'ggplot2', 'dplyr', 'knitr', 'geosphere', 'lubridate', 'e1071', 'caret', 'randomForest', 'ggmap', 'lattice', 'leaflet', 'plotly', 'seewave')
+
+carregaLibs = function (lista){
+  # Percorre a lista para verificar se o pacote está instalado.
+  for (x in lista){
+    # A Negacao do require instala o pacote
+    if (!require(x, character.only = TRUE)){
+      install.packages(x, dependencies = TRUE) 
+      # Aplica o iteravel no require, para carregar a Lib no R
+      sapply(x, library, character.only = TRUE)
+    } 
+  }
+}
+
+set.seed(10)
+# Carrega Pacotes
+carregaLibs(pacotes)
+```
+
+## Corridas de taxis da cidade de Nova York, em 2016.  
+
+Primeiro vamos carregar o dataset e em seguida ver informações estatísticas sobre a base.
+```{r carregando_dataset}
+# Load do dataset
+data = read.csv("./train.csv")
+
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Load Dataset", "valor" = 1))
+
+dim(data)
+
+# Analise da Base
+kable(summary(data[,-1], 5))
+```
+
+### Interpretação da base:  
+Os dados existentes na base são:
+
+ - id: Código único para cada corrida;
+ - vendor_id: Código do provedor da informação;
+ - pickup_datetime: Data e Hora que a corrida iniciou;
+ - dropoff_datetime: Data e Hora que a corrida encerrou;
+ - passenger_count: Número de passageiros da corrida;
+ - pickup_longitude: Longitute de onde a corrida iniciou;
+ - pickup_latitude: Latitude de onde a corrida iniciou;
+ - dropoff_longitude: Longitute de onde a corrida encerrou;
+ - dropoff_latitude: Latitude de onde a corrida encerrou;
+ - store_and_fwd_flag: Flag que indica se a informação foi armazenada antes de ser sincronizada com a base da central;
+ - trip_duration: Duração da viagem, em segundos.
+
+### Enriquecimento dos dados
+Para a análise é interessante gerar novos dados baseados nos dados já exisitentes. Dessa forma é possível identificar mais informações sobre o nosso dataset.
+
+#### Adicionando distâncias: Euclidiana e Manhattan.
+
+Distância Euclidiana:
+```{r aumentando_dataset 1}
+# Calculo distancia euclidiana, menor distancia em metros entre ponto A e ponto B, linha reta.
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+
+data$euclidiana = round(distHaversine(cbind(data$pickup_longitude, data$pickup_latitude), 
+                                     cbind(data$dropoff_longitude, data$dropoff_latitude)), digits = 2)
+```
+
+Distância de Manhattan: 
+```{r aumentando_dataset 2}
+# Calculo distancia manhattan, em metros, entre ponto A e ponto B, quadrado, tambem conhecido como City Blocks.
+# Funcao de calculo
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+
+manhattan_calc = function (pickup_lat, 
+                           pickup_long, 
+                           dropoff_lat, 
+                           dropoff_long){
+  
+  lat_dist = distHaversine(cbind(pickup_long, pickup_lat), 
+                           cbind(dropoff_long, pickup_lat))
+   
+  long_dist = distHaversine(cbind(pickup_long, pickup_lat), 
+                            cbind(pickup_long, dropoff_lat))
+  
+  return (abs(lat_dist) + abs(long_dist))
+}
+
+# adicionando no dataset
+data$manhattan = round(manhattan_calc(data$pickup_latitude, data$pickup_longitude, 
+                                      data$dropoff_latitude, data$dropoff_longitude), digits = 2)
+```
+
+#### Criação de Quadrantes:  
+Podemos gerar quadrantes e identificar onde cada corrida iniciou, e finalizou, de acordo com essa informação. Os quadrantes possuem no máximo 20 metros quadrados. Para isso, serão feitos os seguintes passos:  
+
+ - Delimitar dados: Remover outliers e reduzir o dataset;
+ - Criar os quadrantes;
+ - Encontrar o quadrantes de cada corrida;
+ - Adicionando pontos de interesse
+ 
+```{r aumentando_dataset 3}
+# Discretizando os pontos em quadrantes
+# sqldf permite a utilização de queries para leitura do dataframe.
+
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Analise Geografica", "valor" = 1))
+
+# Delimitando os dados
+# Minima latitude
+data <- subset(data, data$pickup_latitude > 40.624097)
+data <- subset(data, data$dropoff_latitude > 40.624097)
+# Maxima latitude
+data <- subset(data, data$pickup_latitude < 40.845439)
+data <- subset(data, data$dropoff_latitude < 40.845439)
+
+# Minima longitude
+data <- subset(data, data$pickup_longitude > -74.013963)
+data <- subset(data, data$dropoff_longitude > -74.013963)
+# Maxima longitude
+data <- subset(data, data$pickup_longitude< -73.735253)
+data <- subset(data, data$dropoff_longitude < -73.735253)
+
+# Ordenando o Dataset pelo ID
+data <- data[order(data$id),]
+
+
+# Parametros para criar os quadrantes
+# Pontos extremos (latitude, longitude) detro da area delimitada e tamanho do intervalo dos quadrantes
+quadrante <- list (latitude.min = (min(min(data$pickup_latitude),min(data$dropoff_latitude))),
+                   latitude.max = (max(max(data$pickup_latitude),max(data$dropoff_latitude)))+0.02,
+                   latitude.intervalo = 0.02,
+                   longitude.min = (min(min(data$pickup_longitude),min(data$dropoff_longitude))), 
+                   longitude.max = (max(max(data$pickup_longitude),max(data$dropoff_longitude)))+0.02,
+                   longitude.intervalo = 0.02)
+
+# Determinando os limites de cada quadrante na latitude e na longitude
+quadrante$latitude.limite = seq (from = quadrante$latitude.min, 
+                                 to = quadrante$latitude.max, 
+                                 by = quadrante$latitude.intervalo)
+
+quadrante$longitude.limite = seq (from = quadrante$longitude.min, 
+                                  to = quadrante$longitude.max, 
+                                  by = quadrante$longitude.intervalo)
+
+# Verificando a quantidade de quadrantes na latitude, longitude e no total
+quadrante$latitude.quantidade = length(quadrante$latitude.limite)
+quadrante$longitude.quantidade = length(quadrante$longitude.limite)
+quadrante$quantidade.total = quadrante$latitude.quantidade * quadrante$longitude.quantidade
+
+# Atribuindo nomes aos quadrantes 
+quadrante$X <- paste0('X', seq_len(quadrante$latitude.quantidade))
+quadrante$Y <- paste0('Y', seq_len(quadrante$longitude.quantidade))
+quadrante$total <- paste0('Q', seq_len(quadrante$quantidade.total))
+
+# Criando um dataframe com os atributos dos quadrantes
+# Nome do Quadrante / Seq em X / Seq em Y / X inicio / X fim / y inicio / Y fim / X centro / Y centro dos quadrantes
+atributos_quadrantes <- data.frame(names=quadrante$total, row.names=quadrante$total)
+atributos_quadrantes <- mutate(atributos_quadrantes,
+                               x = rep(quadrante$X, each=quadrante$longitude.quantidade),
+                               y = rep(quadrante$Y, quadrante$latitude.quantidade),
+                               x_inicio = rep(quadrante$latitude.limite[1: quadrante$latitude.quantidade], each=quadrante$longitude.quantidade),
+                               x_fim = rep(quadrante$latitude.limite[2:(quadrante$latitude.quantidade +1)], each=quadrante$longitude.quantidade),
+                               y_inicio = rep(quadrante$longitude.limite[1:quadrante$longitude.quantidade], quadrante$latitude.quantidade),
+                               y_fim = rep(quadrante$longitude.limite[2:(quadrante$longitude.quantidade +1)], quadrante$latitude.quantidade),
+                               x_centro = (x_fim - x_inicio)/2.0 + x_inicio,
+                               y_centro = (y_fim - y_inicio)/2.0 + y_inicio
+)
+
+
+# Quadrantes por Corrida
+# Encontrando a qual quadrante pertence cada ponto de Pickup dos dados de corridas de taxi ordenados por id
+relacao_data_quadrantes_pickup = sqldf ("   select data.id, 
+                                                   atributos_quadrantes.names, 
+                                                   atributos_quadrantes.x, 
+                                                   atributos_quadrantes.y 
+                                              from atributos_quadrantes 
+                                              inner join data
+                                             where atributos_quadrantes.x_inicio <= data.pickup_latitude
+                                               and x_fim > data.pickup_latitude
+                                               and atributos_quadrantes.y_inicio <= data.pickup_longitude
+                                               and y_fim > data.pickup_longitude
+                                          order by data.id")
+
+# Encontrando a qual quadrante pertence cada ponto de Dropoff dos dados de corridas de taxi ordenados por id
+relacao_data_quadrantes_dropoff = sqldf ("  select data.id, 
+                                                   atributos_quadrantes.names, 
+                                                   atributos_quadrantes.x, 
+                                                   atributos_quadrantes.y 
+                                              from atributos_quadrantes 
+                                               inner join data
+                                             where atributos_quadrantes.x_inicio <= data.dropoff_latitude
+                                               and x_fim > data.dropoff_latitude
+                                               and atributos_quadrantes.y_inicio <= data.dropoff_longitude
+                                               and y_fim > data.dropoff_longitude
+                                          order by data.id")
+
+# Inserindo no dataframe de corridas o dado do nome do quadrante de Pickup e de Dropoff
+data <- mutate(data,
+               pickup_quadrante = relacao_data_quadrantes_pickup$names, 
+               pickup_quadrante_x = relacao_data_quadrantes_pickup$x,
+               pickup_quadrante_y = relacao_data_quadrantes_pickup$y,
+               dropoff_quadrante = relacao_data_quadrantes_dropoff$names, 
+               dropoff_quadrante_x = relacao_data_quadrantes_dropoff$x,
+               dropoff_quadrante_y = relacao_data_quadrantes_dropoff$y)
+```
+
+Exemplo de como os dados ficaram após a geração dos quadrantes:
+```{r aumentando_dataset 4}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+kable(head(select(data, id, pickup_datetime, dropoff_datetime, trip_duration, pickup_quadrante, dropoff_quadrante)))
+```
+
+#### Velocidade Média:
+Velocidade é outro campo não existente no dataset. Para o cálculo usaremos a distancia de Manhattan, que determina de uma forma mais precisa a distancia real entre os pontos e o tempo em segundos da viagem, que está no campo trip_duration. Para gerar a velocidade média vamos utilizar a formula: Vm = Distancia(em KM)/Tempo(em Horas).
+```{r aumentando_dataset 5}
+# Tempo de viagem está em segundos, vamos converter para horas.
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+
+data$velocidade_media = (data$manhattan/1000)/(data$trip_duration/3600)
+```
+
+#### Datas e Horas:  
+As informações de data também não são tão completas. Podemos quebrar os dados de pickup e dropoff e ter mais informações, como dia da semana, hora do dia, minuto do dia, entre outros. 
+```{r aumentando_dataset 6}
+# Quebrando informações de tempo.
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+
+# Pickup
+data = mutate(data, 
+              dia_semana_pickup = weekdays(as.Date(pickup_datetime)),
+              data_pickup = format(as.POSIXct(pickup_datetime),format = "%d/%m/%y"), 
+              hora_pickup = format(as.POSIXct(pickup_datetime) ,format = "%H"),
+              minutos_pickup = format(as.POSIXct(pickup_datetime) ,format = "%M"),
+              mes_pickup = months(as.Date(pickup_datetime)),
+              numero_dia_pickup = case_when(dia_semana_pickup == 'Sunday'    | dia_semana_pickup == 'Domingo'       ~  1,
+                                            dia_semana_pickup == 'Monday'    | dia_semana_pickup == 'Segunda Feira' ~  2,
+                                            dia_semana_pickup == 'Tuesday'   | dia_semana_pickup == 'Terça Feira'   ~  3,
+                                            dia_semana_pickup == 'Wednesday' | dia_semana_pickup == 'Quarta Feira'  ~  4,
+                                            dia_semana_pickup == 'Thursday'  | dia_semana_pickup == 'Quinta Feira'  ~  5,
+                                            dia_semana_pickup == 'Friday'    | dia_semana_pickup == 'Sexta Feira'   ~  6,
+                                            dia_semana_pickup == 'Saturday'  | dia_semana_pickup == 'Sábado'        ~  7),
+              numero_mes_pickup = case_when(mes_pickup == 'January'   | mes_pickup == 'Janeiro'   ~  1,
+                                            mes_pickup == 'February'  | mes_pickup == 'Fevereiro' ~  2,
+                                            mes_pickup == 'March'     | mes_pickup == 'Março'     ~  3,
+                                            mes_pickup == 'April'     | mes_pickup == 'Abril'     ~  4,
+                                            mes_pickup == 'May'       | mes_pickup == 'Maio'      ~  5,
+                                            mes_pickup == 'June'      | mes_pickup == 'Junho'     ~  6,
+                                            mes_pickup == 'July'      | mes_pickup == 'Julho'     ~  7,
+                                            mes_pickup == 'August'    | mes_pickup == 'Agosto'    ~  8,
+                                            mes_pickup == 'September' | mes_pickup == 'Setembro'  ~  9,
+                                            mes_pickup == 'October'   | mes_pickup == 'Outubro'   ~  10,
+                                            mes_pickup == 'November'  | mes_pickup == 'Novembro'  ~  11,
+                                            mes_pickup == 'December'  | mes_pickup == 'Dezembro'  ~  12))
+# Dropoff
+data = mutate(data, 
+              dia_semana_dropoff = weekdays(as.Date(dropoff_datetime)),
+              data_dropoff = format(as.POSIXct(dropoff_datetime),format = "%d/%m/%y"), 
+              hora_dropoff = format(as.POSIXct(dropoff_datetime) ,format = "%H"),
+              minutos_dropoff = format(as.POSIXct(dropoff_datetime) ,format = "%M"),
+              mes_dropoff = months(as.Date(dropoff_datetime)),
+              numero_dia_dropoff = case_when(dia_semana_dropoff == 'Sunday'   | dia_semana_dropoff == 'Domingo'       ~  1,
+                                            dia_semana_dropoff == 'Monday'    | dia_semana_dropoff == 'Segunda Feira' ~  2,
+                                            dia_semana_dropoff == 'Tuesday'   | dia_semana_dropoff == 'Terça Feira'   ~  3,
+                                            dia_semana_dropoff == 'Wednesday' | dia_semana_dropoff == 'Quarta Feira'  ~  4,
+                                            dia_semana_dropoff == 'Thursday'  | dia_semana_dropoff == 'Quinta Feira'  ~  5,
+                                            dia_semana_dropoff == 'Friday'    | dia_semana_dropoff == 'Sexta Feira'   ~  6,
+                                            dia_semana_dropoff == 'Saturday'  | dia_semana_dropoff == 'Sábado'        ~  7),
+              numero_mes_dropoff = case_when(mes_dropoff == 'January'   | mes_dropoff == 'Janeiro'   ~  1,
+                                             mes_dropoff == 'February'  | mes_dropoff == 'Fevereiro' ~  2,
+                                             mes_dropoff == 'March'     | mes_dropoff == 'Março'     ~  3,
+                                             mes_dropoff == 'April'     | mes_dropoff == 'Abril'     ~  4,
+                                             mes_dropoff == 'May'       | mes_dropoff == 'Maio'      ~  5,
+                                             mes_dropoff == 'June'      | mes_dropoff == 'Junho'     ~  6,
+                                             mes_dropoff == 'July'      | mes_dropoff == 'Julho'     ~  7,
+                                             mes_dropoff == 'August'    | mes_dropoff == 'Agosto'    ~  8,
+                                             mes_dropoff == 'September' | mes_dropoff == 'Setembro'  ~  9,
+                                             mes_dropoff == 'October'   | mes_dropoff == 'Outubro'   ~  10,
+                                             mes_dropoff == 'November'  | mes_dropoff == 'Novembro'  ~  11,
+                                             mes_dropoff == 'December'  | mes_dropoff == 'Dezembro'  ~  12))
+```
+
+Exemplo de como alguns dados ficaram após a quebra das datas:
+```{r aumentando_dataset 7}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+kable(head(select(data, dia_semana_pickup, numero_dia_pickup, mes_pickup, numero_mes_pickup)))
+```
+
+#### Pontos de Interesse:  
+Uma vez com os dados separados por quadrantes também é interessante identificar pontos de interesse, como Aeroportos, pontos turisticos, etc. Os pontos utilizados nesta análise foram:  
+
+ - Museu Americano de Historia Natural
+ - The Museum of Modern Art
+ - Aeroporto Internacional John F. Kennedy
+ - Aeroporto de LaGuardia
+ - Yankee Stadium
+ - Zoologico do Bronx
+ - Grand Army Plaza
+ - Hospital for Special Surgery
+ - Rockefeller Center
+ - Madame Tussauds em Nova York
+ - Momofuku Ko
+ - Le Bernardin Prive
+ - Trump International Hotel
+ - Daniel
+ - Eleven Madison Park
+ - Kurumazushi
+ - Chef's Table at Brooklyn Fare
+ - Columbus Circle
+ - Estacao Grand Central
+ - Apple Fifth Avenue
+ - Baccarat Hotel and Residences New York
+ - Four Seasons Hotel New York
+ - Four Seasons Hotel New York Downtown
+ - Park Hyatt New York
+ - The St. Regis New York
+ - The Ritz-Carlton New York
+ - Tiffany e Co. 1
+ - Tiffany e Co. 2
+ - Tiffany e Co. 3
+ - Tiffany e Co. 4
+ - Tiffany e Co. 5
+ - Tiffany e Co. Corporate Office
+ - Wall Street Business Center
+ - NewYork-Presbyterian Hospital
+ - American Friends-Laniado Hospital
+ - Mount Sinai Beth Israel
+ - Bellevue Hospital Center
+ - New York Hospital Med Center-Queens
+ - Lenox Hill Hospital
+ - New York Presbyterian Hospital Ny
+ - Gracie Square Hospital
+ - NYC Health + Hospitals/Metropolitan
+ - Weill Cornell Medicine Global Pediatrics
+ - New York Presbyterian Med Center
+ - Universidade Columbia
+ - NYU School of Law
+ - Stern School of Business da Universidade
+ - New York University Silver Center for Arts and Science
+ - The New York Museum of Contemporary Art
+
+As informações desses pontos de intesse foram adicionados ao arquivo externo 'pontos_interesse.csv'. Esses dados foram coletados através de geolocalização providos pelo Google Maps.
+
+```{r aumentando_dataset 8}
+# Lendo dados de latitude e longitude dos pontos de interesse
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Load Dataset", "valor" = 1))
+pontos_interesse = read.csv("pontos_interesse.csv")
+
+# Encontrando a qualquadrante cada ponto de interesse pertence
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Preparacao de Dados", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Analise Geografica", "valor" = 1))
+
+relacao_quadr_ponto_interesse = sqldf ("select pontos_interesse.id, 
+                                               atributos_quadrantes.names, 
+                                               atributos_quadrantes.x, 
+                                               atributos_quadrantes.y 
+                                       from atributos_quadrantes 
+                                       inner join pontos_interesse
+                                       where atributos_quadrantes.x_inicio <= pontos_interesse.latitude
+                                       and x_fim > pontos_interesse.latitude
+                                       and atributos_quadrantes.y_inicio <= pontos_interesse.longitude
+                                       and y_fim > pontos_interesse.longitude
+                                       order by pontos_interesse.id")
+
+# Inserindo no dataframe de pontos de interesse os dados dos quadrantes
+pontos_interesse <- mutate(pontos_interesse,
+                           quadrante = relacao_quadr_ponto_interesse$names, 
+                           quadrante_x = relacao_quadr_ponto_interesse$x,
+                           quadrante_y = relacao_quadr_ponto_interesse$y)
+
+# Todos os quadrantes ordenados pela quantidade de Pickup e Dropoff
+ord_quadrantes_pickup = sqldf ("select data.pickup_quadrante, 
+                                       count(1) as quantidade
+                               from data
+                               group by data.pickup_quadrante
+                               order by 2 desc")
+
+ord_quadrantes_dropoff = sqldf ("select data.dropoff_quadrante, 
+                                        count(1) as quantidade
+                                from data
+                                group by data.dropoff_quadrante
+                                order by 2 desc")
+
+# Quadrantes dos pontos de interesse ordenados pela quantidade de Pickup e Dropoff
+ord_pontos_interesse_pickup = sqldf ("select ord_quadrantes_pickup.pickup_quadrante, 
+                                             ord_quadrantes_pickup.quantidade, 
+                                             pontos_interesse.lugar,
+                                             pontos_interesse.categoria
+                                     from ord_quadrantes_pickup
+                                     left join pontos_interesse
+                                     on ord_quadrantes_pickup.pickup_quadrante = pontos_interesse.quadrante 
+                                     order by 2 desc")
+
+ord_pontos_interesse_dropoff = sqldf ("select ord_quadrantes_dropoff.dropoff_quadrante, 
+                                              ord_quadrantes_dropoff.quantidade, 
+                                              pontos_interesse.lugar,
+                                              pontos_interesse.categoria
+                                      from ord_quadrantes_dropoff
+                                      inner join pontos_interesse
+                                      on ord_quadrantes_dropoff.dropoff_quadrante = pontos_interesse.quadrante 
+                                      order by 2 desc")
+```
+
+Os pontos de interesse são dividos em categorias e o gráfico abaixo mostra a proporção deles:
+```{r pontos de interesse 1}
+# Pontos de Interesses
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+contagem = pontos_interesse %>%
+           group_by(categoria) %>%
+           summarise(count=n())
+plot_ly(pontos_interesse, labels = ~categoria, values = contagem, type = 'pie') %>%
+layout(title = 'Pontos de interesse por categoria',
+       xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+       yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+```
+
+Com essas informações é possível realizar um cruzamento dos pontos de interesse e as corridas. Dessa forma podemos identificar a quantidade de corridas por pelo menos um dos pontos de interesse identificados.
+
+Quantidade de corridas por categoria de ponto de interesse:
+
+```{r pontos de interesse 2}
+# Corridas por Ponto de Interesse
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+pickup_cpi = ord_pontos_interesse_pickup %>%
+             group_by(categoria) %>%
+             summarise(total=sum(quantidade))
+# Tratamento de Nulos
+pickup_cpi$categoria[is.na(pickup_cpi$categoria)] = "Ponto de Interesse sem Corridas no Quadrante"
+
+plot_ly(pickup_cpi, labels = ~categoria, values = ~total, type = 'pie') %>%
+  layout(title = 'Quantidade de Viagens por Categoria de Interesse',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+```
+
+Temos um total de 8 categorias de pontos de interesse. Aproximadamente 23% das corridas vão para Hospitais, enquanto é seguido por 17% de ambientes Culturais e 15% em Hoteis e Restaurantes.
+
+### Análise exploratória:  
+
+Neste momento iremos explorar nossos dados, compreende-los melhor e ter um resumo sobre o que os mesmos podem nos dizer.  
+Qual a quantidade de corridas por mês?
+```{r plots 1}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+plotFonte = list(family = "Dubai, monospace", size = 18, color = "#7f7f7f")
+
+# Corridas por mes
+corridaMes <- data %>% 
+  group_by(mes_pickup,
+           numero_mes_pickup) %>% 
+           summarise(count=n()) 
+colnames(corridaMes) = c('mes','nrmes','corrida')
+corridaMes <- corridaMes[order(corridaMes$nrmes),]
+xlabel = list(title = "Mês de Referencia", titlefont = plotFonte)
+ylabel = list(title = "Quantidade de Corridas", titlefont = plotFonte)
+plot_ly(x = corridaMes$nrmes, y = corridaMes$corrida, name = corridaMes$mes, type = 'bar') %>% 
+  layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+Qual a quantidade de corridas iniciadas pelo dia da semana?
+```{r plots 2}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Corridas iniciadas por dia
+corridaDia <- data %>% 
+  group_by(dia_semana_pickup,
+           numero_dia_pickup) %>% 
+  summarise(count=n()) 
+colnames(corridaDia) = c('dia','nrdia','corridas')
+corridaDia <- corridaDia[order(corridaDia$nrdia),]
+xlabel = list(title = "Dia da Semana", titlefont = plotFonte)
+ylabel = list(title = "Quantidade de Corridas", titlefont = plotFonte)
+plot_ly(x = corridaDia$nrdia, y = corridaDia$corridas, name = corridaDia$dia, type = 'bar') %>% 
+  layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+E a quantidade de corridas finalizadas pelo dia da semana?
+```{r plots 3}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Corridas finalizadas por dia
+corridaDia <- data %>% 
+  group_by(dia_semana_pickup,
+           numero_dia_pickup) %>% 
+  summarise(count=n()) 
+colnames(corridaDia) = c('dia','nrdia','corridas')
+corridaDia <- corridaDia[order(corridaDia$nrdia),]
+xlabel = list(title = "Dia da Semana", titlefont = plotFonte)
+ylabel = list(title = "Quantidade de Corridas", titlefont = plotFonte)
+plot_ly(x = corridaDia$nrdia, y = corridaDia$corridas, name = corridaDia$dia, type = 'bar') %>% 
+  layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+Que tal a quantidade de corridas por hora?
+```{r plots 4}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Corridas por hora
+corridasHora = data %>%
+               group_by(hora_pickup) %>%
+               summarise(count=n())
+corridasHora <- corridasHora[order(corridasHora$hora_pickup),]
+xlabel = list(title = "Hora do dia", titlefont = plotFonte)
+ylabel = list(title = "Quantidade de Corridas", titlefont = plotFonte)
+plot_ly(x = corridasHora$hora_pickup, y = corridasHora$count, name = corridasHora$hora_pickup, type = 'bar') %>% 
+  layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+
+Qual o tempo médio da viagem em função do horário?
+```{r plots 5}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Tempo Medio por Hora
+tempoHora = data %>%
+            group_by(hora_pickup) %>%
+            summarise_at(vars(trip_duration), funs(mean(., na.rm=TRUE)))
+xlabel = list(title = "Hora do dia", titlefont = plotFonte)
+ylabel = list(title = "Minutos", titlefont = plotFonte)
+plot_ly(x = tempoHora$hora_pickup, y = (tempoHora$trip_duration/60), name = tempoHora$hora_pickup,type = 'bar') %>% 
+layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+E a velocidade média em função do horário?
+```{r plots 6}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Velocidade Média por Hora
+velocidadeHora = data %>%
+                 group_by(hora_pickup) %>%
+                 summarise_at(vars(velocidade_media), funs(mean(., na.rm=TRUE)))
+xlabel = list(title = "Hora do dia", titlefont = plotFonte)
+ylabel = list(title = "Velocidade Média em KM/h", titlefont = plotFonte)
+plot_ly(x = velocidadeHora$hora_pickup, y = (velocidadeHora$velocidade_media), name = velocidadeHora$hora_pickup,type = 'bar') %>% 
+  layout(xaxis = xlabel, yaxis = ylabel)
+
+```
+
+Após as análises desse gráficos podem dizer que:
+ 
+ - O Mês de Março é o que tem mais corridas realizadas;
+ - Sexta-Feira é o dia que possui mais corridas;
+ - A quantidade de corridas é maior as 18h;
+ - O Tempo médio de corrida é maior nas corridas das 15h e menor nas corridas as 5h;
+ - A Velocidade Média é mais alta as 5h e o pior horário para se andar na cidade são as 15h.
+
+### SubSet  
+Para as futuras analises, o dataset será filtrado para 5000 observações.  
+Todas as analises daqui a frente serão feitas considerando o novo conjunto de dados.
+```{r subset 1}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+
+# Gerando subset
+corridas.aleatorios <- sample(unique(data$id), 5000)
+data = data %>%                   
+       subset(id %in% corridas.aleatorios)
+```
+  
+### Clusterização (Aprendizado Não Supervisionado)  
+Clusters são agrupamentos dos dados. Dessa forma podemos identificar relações escondidas dentro dos dados.
+
+Abaixo temos um gráfico mostrando 4 grupos de dados em um plot 3D, onde temos a relação Velocidade Média por Distãncia em função do tempo.
+
+```{r}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+data3d <- data.frame(data$hora_pickup, data$velocidade_media, data$manhattan)
+modelo3d  <- kmeans(x = data3d, center = 6)
+xlabel = list(title = "Horario da Corrida", titlefont = plotFonte)
+ylabel = list(title = "Distancia Percorrida", titlefont = plotFonte)
+zlabel = list(title = "Velocidade Media", titlefont = plotFonte)
+data %>%  mutate(cluster = modelo3d$cluster) %>% 
+  plot_ly(data= . , x = ~hora_pickup, y = ~manhattan, z = ~velocidade_media,
+          text = ~data_pickup,
+          type = 'scatter3d',
+          mode = 'markers',
+          color= ~cluster,
+          size = rep(1, dim(data)[1]), sizes = c(3.0)) %>% 
+layout(
+  title = "Clusters das Corridas",
+  scene = list(
+    xaxis = xlabel,
+    yaxis = ylabel,
+    zaxis = zlabel)
+  )
+```
+
+Podemos ver que os Grupos são apresentados basicamente de acordo com a distãncia percorrida
+ 
+### Análises de Mapas:  
+Análise de mapas são importantes para uma melhor visualização dos dados. Utilizaremos o mapa do Brooklyn para centralização geográfica.
+
+```{r newyork 1, message=FALSE}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Analise Geografica", "valor" = 1))
+
+#Criando o mapa com o foco no Brooklyn (assim o mapa ficou mais centralizado)
+NY_center = as.numeric(geocode("Brooklyn"))
+NYMap = ggmap(get_googlemap(center=NY_center,scale=2, zoom=11))
+NYMap
+```
+
+
+Com os dados existentes podem ser gerados Mapas de Calor, que representam a quantidade de ocorrências em determinados cruzamentos de dados.  
+
+Nos casos de Taxi, podemos verificar quais são os principais pontos de partida dos taxis.
+```{r heatmap 1}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Analise Geografica", "valor" = 1))
+
+# criando dataframe para os plots de todos os pickups
+num_pickup = data.frame(data$pickup_longitude,data$pickup_latitude)
+colnames(num_pickup)= c('longitude','latitutde')
+
+# criando dataframe para os plots de todos os dropoffs
+num_dropoff = data.frame(data$dropoff_longitude,data$dropoff_latitude)
+colnames(num_dropoff)= c('longitude','latitutde')
+
+# plot de calor dos pickup
+NYMap + stat_density2d(aes(x = longitude, y = latitutde, fill = ..level.., alpha = 0.25),
+                       size = 0.03,
+                       bins = 50,
+                       data = num_pickup,
+                       geom = "polygon") + scale_fill_distiller(palette = 'RdYlGn')
+
+```
+
+
+Também podemos verificar os principáis pontos de finalização das partidas. 
+```{r heatmap 2, warning=FALSE}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Analise Geografica", "valor" = 1))
+
+# plot de calor dos dropoff
+NYMap + stat_density2d(aes(x = longitude, y = latitutde, fill = ..level.., alpha = 0.25),
+                       size = 0.01,
+                       bins = 50,
+                       data = num_dropoff,
+                       geom = "polygon") + scale_fill_distiller(palette = 'RdYlGn')
+
+```
+
+Os mapas de calor nos mostram aonde existem as maiores concentrações de viagens no Mapa, onde, por exemplo, é possível identificar que existem uma concetração de viagens no Aeroporto John Kennedy e que as corridas iniciam e terminam bem no centro de Manhattan, basicamente em torno do Central Park.  
+
+### Modelagem de Aprendizado de Máquina - Velocidade Média
+
+A Geração de novas informações no dataset, como datas, distancias, etc, além de gerar novas informações úteis para análises também são importantes para a modelagem que será utilizada em modelos de Machine Learning. Neste momento iremos utilizar algumas variáveis que serão responsáveis para treinamento de um modelo de regressão.  
+O Modelo escolhido foi o RandomForest, e as variáveis serão:  
+
+#### Dados de Entrada:
+ - Distância Manhattan;
+ - Número do dia do inicio da corrida (1 para segunda, 2 para terça, etc);
+ - Número do mês do inicio da corrida (1 para Janeiro, 2 para Fevereiro, etc);
+ - Hora do inicio da corrida;
+ - Minuto do inicio da corrida;
+ - Número do dia do final da corrida (1 para segunda, 2 para terça, etc);
+ - Número do mês do final da corrida (1 para Janeiro, 2 para Fevereiro, etc);
+ - Hora do final da corrida;
+ - Minuto do final da corrida.
+ 
+Essas informações são importantes para, por exemplo, poder aprende a velocidade média, já que existem discrepancias na mesma região de acordo com os horários de pico, feriados, pontos turisticos, em dias diferentes, ou até mesmo em horários diferentes. Portanto, nossa regressão irá prever a velocidade média considerando como entrada todas as informações passadas acima.
+
+#### Dados de Saída:  
+ - Velocidade Média da corrida.  
+ 
+```{r modelagem 1}
+# Funcao para normalizar
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Modelagem", "valor" = 1))
+
+normalizacao <- function(x) {
+  return((x-min(x)) / (max(x)-min(x)))
+}
+
+# Normalizando
+# Reduzindo dataset
+predicao_velocidade = data %>% 
+                  select(numero_mes_pickup, numero_dia_pickup, hora_pickup, minutos_pickup, manhattan,
+                         numero_mes_dropoff, numero_dia_dropoff, hora_dropoff, minutos_dropoff, trip_duration, velocidade_media) %>% 
+                  mutate(manhattan = normalizacao(manhattan), 
+                         numero_mes_pickup = normalizacao(numero_mes_pickup),
+                         numero_dia_pickup = normalizacao(numero_dia_pickup),
+                         hora_pickup = normalizacao(as.integer(hora_pickup)), 
+                         minutos_pickup = normalizacao(as.integer(minutos_pickup)), 
+                         numero_mes_dropoff = normalizacao(numero_mes_dropoff), 
+                         numero_dia_dropoff = normalizacao(numero_dia_dropoff), 
+                         hora_dropoff = normalizacao(as.integer(hora_dropoff)), 
+                         minutos_dropoff = normalizacao(as.integer(minutos_dropoff)),
+                         trip_duration = normalizacao(trip_duration),
+                         velocidade_media = velocidade_media)
+```
+ 
+#### Redução de Dimensionalidades:  
+Existem corridas que possuem horário de inicio, ou de fim, as 00 e outras as 23. Como estamos trabalhando com modelos matematicos e a grandeza dos números é dispersa iremos normalizar todas as informações que serão utilizadas no modelo, entre 0 e 1. Dessa forma estamos padronizando os dados e ajudando na eficiencia do modelo matemático para gerar nossa função de regressão.  
+
+A Separação do dataset se faz necessária para aprendizado do modelo matemático, que será feita em 2 partes: Conjunto de Treino e Conjunto de Teste.
+```{r modelagem 2}
+# Separando datasets
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+indice = sample(2, nrow(predicao_velocidade), replace=TRUE, prob=c(0.7, 0.3))
+
+# Treino
+predicao_velocidade_treino = predicao_velocidade[indice==1,]
+
+# Teste
+predicao_velocidade_teste = predicao_velocidade[indice==2,]
+```
+
+#### Analise de Correlações:  
+Com nossos dados de entrada, vamos analisas as correlações entre as variávels:
+```{r modelagem 3}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Analise de Correlacoes
+# Matriz com valores absolutos das correlacoes
+matriz_modelagem = abs(cor(predicao_velocidade))
+# Matriz diagonal recebe 0
+diag(matriz_modelagem) = 0
+# Retorna onde os indices sao TRUE, onde a matriz possui indice maior que 0.8
+which(matriz_modelagem > 0.8, arr.ind = T)
+```
+
+Apesar do modelo apresentar correlações entre os dados de mês, dia, hora de pickup e dropoff , não iremos utilizar outras técnicas de redução de dimensionalidade.
+Estes dados são independentes, e apesar de bem relacionados, já que existem muitas corridas que iniciam e terminam no mesmo dia, remover estes campos iria remover a interpretação do modelo para casos de corridas que viram a meia noite, já que são dias diferentes.
+Considerando que horários de pico e alguns dias específicos podem ser determinantes para a velocidade, iremos manter as informações como estão.
+
+#### Avaliação do Modelo:  
+O Modelo RandomForest será utilizado, porém, vamos analisar quantas árvores são necessárias para esse modelo. O Teste será feito com 500 árvores, e com o resultado no gráfico iremos decidir qual o número ideal de árvores para utilização.
+```{r modelagem 4}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Criando Modelo de Regressao para calcular a velocidade média
+predicao_velocidade_modelo = randomForest(velocidade_media ~ ., data = predicao_velocidade_treino, ntree=500, proximity=FALSE)
+plot(predicao_velocidade_modelo, main = 'Regressao 500 Árvores - Velocidade Média')
+
+```
+
+O Modelo aparenta estabilizar a taxa de erro por volta das 160 árvores. Esse será o número utilizado para o aprendizado de máquina.
+
+```{r modelagem 5}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+# Criando Modelo de Regressao para calcular a velocidade média
+predicao_velocidade_modelo = randomForest(velocidade_media ~ ., data = predicao_velocidade_treino, ntree=160, proximity=TRUE)
+plot(predicao_velocidade_modelo, main = 'Regressao 160 Árvores - Velocidade Média')
+```
+
+Abaixo está um resumo de como o modelo ficou após a utilização de 160 árvores:
+```{r modelagem 6}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+predicao_velocidade_modelo
+```
+
+#### Predição:  
+Uma vez o modelo gerado podemos efetuar uma predição da velocidade média. Abaixo podemos ver uma pequena parcela de dados com o resultado após a predição.
+
+ - velocidade_media = informa a velocidade praticada na realidade;
+ - predicao = a velocidade que o modelo identificou após o aprendizado de máquina.
+
+```{r predicao 1}
+# Predicao de velocidade media
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+predicao = predict(predicao_velocidade_modelo, predicao_velocidade_teste[,-11])
+predicao_velocidade_teste$predicao = predicao
+kable(head(select(predicao_velocidade_teste, velocidade_media, predicao), 20))
+```
+
+#### Avaliação da Predição:  
+Aqui podemos consultar como está a distribuição de reziduos, que considera a subtração da velocidade média real com a velocidade média predita. Esses dados podem ser vistos no histograma abaixo:
+```{r predicao 2}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+histograma = predicao_velocidade_teste$velocidade_media - predicao_velocidade_teste$predicao
+xlabel = list(title = "Reziduo da Velocidade", titlefont = plotFonte)
+ylabel = list(title = "Frequencia", titlefont = plotFonte)
+plot_ly(x = histograma, type = 'histogram') %>% 
+      layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+O Root Mean Square (RMS) é uma métrica de cálculo que informa o erro esperado para cada predição realizada, para mais e para menos. Por exemplo:  
+Se o RMS for de 5km/h, significa que o dado da previsão, que foi 10km/h, pode ter uma variação 5km/h para mais, ou para menos. O Valor deste erro por ser visto abaixo, em uma grandeza de Km/h. 
+
+```{r predicao 3}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+                    
+rms(histograma)
+```
+
+
+### Modelagem de Aprendizado de Máquina - Tempo Estimado da Viagem
+
+Uma vez com a possibilidade de predizer a velocidade média, também é possível identificar o tempo estimado da viagem. 
+O Modelo escolhido foi o RandomForest, e as variáveis serão:  
+
+#### Dados de Entrada:  
+ - Distancia Manhattan;
+ - Número do dia do inicio da corrida (1 para segunda, 2 para terça, etc);
+ - Número do mês do inicio da corrida (1 para Janeiro, 2 para Fevereiro, etc);
+ - Hora do inicio da corrida;
+ - Minuto do inicio da corrida.
+ 
+#### Dados de Saída:  
+ - Tempo Estimado da Viagem
+ 
+```{r modelagem 7}
+# Modelo de Predicao de Tempo
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Programacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Modelagem", "valor" = 1))
+
+predicao_tempo = data %>% 
+                   select(numero_mes_pickup, numero_dia_pickup, hora_pickup, minutos_pickup, manhattan,
+                          velocidade_media, trip_duration) %>% 
+                   mutate(manhattan = normalizacao(manhattan), 
+                          numero_mes_pickup = normalizacao(numero_mes_pickup),
+                          numero_dia_pickup = normalizacao(numero_dia_pickup),
+                          hora_pickup = normalizacao(as.integer(hora_pickup)), 
+                          minutos_pickup = normalizacao(as.integer(minutos_pickup)), 
+                          velocidade_media = normalizacao(velocidade_media),
+                          trip_duration = trip_duration)
+```
+ 
+A Separação do dataset se faz necessária para aprendizado do modelo matemático, que será feita em 2 partes: Conjunto de Treino e Conjunto de Teste.
+```{r modelagem 8}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Separando datasets
+indice = sample(2, nrow(predicao_tempo), replace=TRUE, prob=c(0.7, 0.3))
+
+# Treino
+predicao_tempo_treino = predicao_tempo[indice==1,]
+
+# Teste
+predicao_tempo_teste = predicao_tempo[indice==2,]
+```
+
+#### Analise de Correlações:  
+Com nossos dados de entrada, vamos analisas as correlações entre as variávels:
+```{r modelagem 9}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Analise de Correlacoes
+# Matriz com valores absolutos das correlacoes
+matriz_modelagem_2 = abs(cor(predicao_tempo))
+# Matriz diagonal recebe 0
+diag(matriz_modelagem_2) = 0
+# Retorna onde os indices sao TRUE, onde a matriz possui indice maior que 0.8
+which(matriz_modelagem_2 > 0.8, arr.ind = T)
+```
+
+Nesse caso não existem correlações entre as variáveis.
+
+#### Avaliação do Modelo:  
+O Modelo RandomForest será utilizado, porém, vamos analisar quantas árvores são necessárias para esse modelo. O Teste será feito com 500 árvores, e com o resultado no gráfico iremos decidir qual o número ideal de árvores para utilização.
+```{r modelagem 10}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Criando Modelo de Regressao para calcular a Tempo da Viagem
+predicao_tempo_modelo = randomForest(trip_duration ~ ., data = predicao_tempo_treino, ntree=500, proximity=TRUE)
+plot(predicao_tempo_modelo, main = 'Regressao 500 Árvores - Tempo da Viagem')
+```
+
+O Modelo aparenta estabilizar a taxa de erro por volta das 230 árvores. Esse será o número utilizado para o aprendizado de máquina.
+
+```{r modelagem 11}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Criando Modelo de Regressao para calcular Tempo da Viagem
+predicao_tempo_modelo = randomForest(trip_duration ~ ., data = predicao_tempo_treino, ntree=230, proximity=TRUE)
+plot(predicao_tempo_modelo, main = 'Regressao 230 Árvores - Tempo da Viagem')
+```
+
+Abaixo está um resumo de como o modelo ficou após a utilização de 230 árvores:
+```{r modelagem 12}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+predicao_tempo_modelo
+```
+
+#### Predição:  
+Uma vez o modelo gerado podemos efetuar uma predição da velocidade média. Abaixo podemos ver uma pequena parcela de dados com o resultado após a predição.
+
+ - trip duration = informa o tempo praticado na realidade;
+ - predicao = o tempo que o modelo identificou após o aprendizado de máquina.
+
+```{r predicao 4}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Machine Learning", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+# Predicao de duracao da corrida
+
+predicao = predict(predicao_tempo_modelo, predicao_tempo_teste[,-11])
+predicao_tempo_teste$predicao = round(predicao)
+kable(head(select(predicao_tempo_teste, trip_duration, predicao), 20))
+```
+
+#### Avaliação da Predição:  
+Abaixo, temos um gráfico que informa a distribuição das informações de Duração preditas e reais.
+```{r predicao 5}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Visualizacao", "valor" = 1))
+
+histograma = predicao_tempo_teste$trip_duration - predicao_tempo_teste$predicao
+xlabel = list(title = "Reziduo do Tempo, em s", titlefont = plotFonte)
+ylabel = list(title = "Frequencia", titlefont = plotFonte)
+plot_ly(x = histograma, type = 'histogram') %>% 
+      layout(xaxis = xlabel, yaxis = ylabel)
+```
+
+O Root Mean Square (RMS) é uma métrica de cálculo que informa o erro esperado para cada predição realizada, para mais e para menos. Por exemplo:  
+Se o RMS for de 100s, significa que o dado da previsão, que foi 1100s, pode ter uma variação 100s para mais, ou para menos. O Valor deste erro por ser visto abaixo, em uma grandeza de segundos.
+
+```{r predicao 6}
+segmentacao = rbind(segmentacao, data.frame("tipo" = "Matematica", "valor" = 1))
+
+rms(histograma)
+```
+
+
+### Conclusão:  
+
+Concluímos que com a utilização de Técnicas Estatisticas, Programação e Análise de Dados é possível identificar várias informações relevantes dentro de um dataset relativamente fraco. Com esses dados foi possível identificar os principais horários das corridas, as velocidades médias, onde as principais corridas ocorrem em função de determinados pontos de interesses, entre outras informações.
+
+Com a análise podemos identificar as principais técnicas utilizadas ao decorrer do projeto, mostrando as principais tecnologias usadas para chegar até este ponto. Abaixo temos um gráfico que a quantidade de esforço separado por tipo de trabalho.
+
+```{r conclusao 1}
+segmentacao_grafica = segmentacao %>%
+                      group_by(tipo) %>%
+                      summarise(total=n())
+plot_ly(segmentacao_grafica, labels = segmentacao_grafica$tipo, values = segmentacao_grafica$total, type = 'pie') %>%
+  layout(title = 'Segmentação do Trabalho',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+```
+

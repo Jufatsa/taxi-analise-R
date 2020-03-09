@@ -1,0 +1,49 @@
+id,categoria,lugar,latitude,longitude
+1,Cultura,Museu Americano de Historia Natural,40.78132,-73.973988
+2,Cultura,The Museum of Modern Art,40.761417,-73.977611
+3,Transporte,Aeroporto Internacional John F. Kennedy,40.646898,-73.788948
+4,Transporte,Aeroporto de LaGuardia,40.772176,-73.872525
+5,Cultura,Yankee Stadium,40.829591,-73.926175
+6,Cultura,Zoologico do Bronx,40.850874,-73.877004
+7,Cultura,Grand Army Plaza,40.764773,-73.973120
+8,Hospital,Hospital for Special Surgery,40.765124,-73.952653
+9,Cultura,Rockefeller Center,40.758773,-73.978674
+10,Cultura,Madame Tussauds em Nova York,40.756449,-73.988834
+11,Restaurante,Momofuku Ko,40.724823,-73.991374
+12,Restaurante,Le Bernardin Prive,40.761412,-73.981758
+13,Hotel,Trump International Hotel,40.769062,-73.981575
+14,Restaurante,Daniel,40.766774,-73.967602
+15,Restaurante,Eleven Madison Park,40.741544,-73.986968
+16,Restaurante,Kurumazushi,40.756563,-73.977763
+17,Restaurante,Chef's Table at Brooklyn Fare,40.756122,-73.996456
+18,Cultura,Columbus Circle,40.768084,-73.981887
+19,Transporte,Estacao Grand Central,40.752722,-73.977224
+20,Compras,Apple Fifth Avenue,40.763541,-73.972813
+21,Hotel,Baccarat Hotel and Residences New York,40.760900,-73.977392
+22,Hotel,Four Seasons Hotel New York,40.762137,-73.971443
+23,Hotel,Four Seasons Hotel New York Downtown,40.712835,-74.009186
+24,Hotel,Park Hyatt New York,40.765403,-73.979028
+25,Hotel,The St. Regis New York,40.761306,-73.974406
+26,Hotel,The Ritz-Carlton New York,40.765312,-73.976010
+27,Compras,Tiffany e Co. 1,40.762692,-73.973938
+28,Compras,Tiffany e Co. 2,40.758239,-73.978025
+29,Compras,Tiffany e Co. 3,40.752259,-73.976293
+30,Compras,Tiffany e Co. 4,40.724355,-74.000122
+31,Compras,Tiffany e Co. 5,40.706548,-74.010214
+32,Negocios,Tiffany e Co. Corporate Office,40.742120,-73.989881
+33,Negocios,Wall Street Business Center,40.705031,-74.006280
+34,Hospital,NewYork-Presbyterian Hospital,40.742834,-73.991422
+35,Hospital,American Friends-Laniado Hospital,40.752846,-73.992352
+36,Hospital,Mount Sinai Beth Israel,40.747567,-73.981785
+37,Hospital,Bellevue Hospital Center,40.738959,-73.975391
+38,Hospital,New York Hospital Med Center-Queens,40.746853,-73.972235
+39,Hospital,Lenox Hill Hospital,40.758760,-73.974491
+40,Hospital,New York Presbyterian Hospital Ny,40.765288,-73.955521
+41,Hospital,Gracie Square Hospital,40.769749,-73.953071
+42,Hospital,NYC Health + Hospitals/Metropolitan,40.784888,-73.944406
+43,Hospital,Weill Cornell Medicine Global Pediatrics,40.773823,-73.948972
+44,Hospital,New York Presbyterian Med Center,40.807930, -73.963211
+45,Universidade,Universidade Columbia,40.807443, -73.962468
+46,Universidade,NYU School of Law,40.730575,-73.999484
+47,Universidade,Stern School of Business da Universidade,40.729079,-73.996533
+48,Universidade,New York University Silver Center for Arts and Science,40.730344,-73.995590
